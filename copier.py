@@ -61,11 +61,23 @@ if __name__ == "__main__":
             user_dict[user['id']] = user['profile']['real_name_normalized']
 
 
+        messages = []
         history = client.conversations_history(
             channel = 'GGAMDAFC1'
         )
-        print(history)
 
+        i = 0
+        while history['has_more']:
+            messages.append(history['messages'])
+            print(f'Fetching batch {history["response_metadata"]["next_cursor"]}')
+            history = client.conversations_history(
+                channel = 'GGAMDAFC1'
+                cursor = history["response_metadata"]["next_cursor"]
+            )
+            i += 1
+            if i > 4:
+                break
+        print(messages)
 
 # For my reference:
 #   random: C8RTS98QM
