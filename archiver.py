@@ -23,7 +23,6 @@ def get_messages(client, channel, name):
 
     out_users = name + '_users.json'
     out_name = name + '_messages.json'
-    out_threads = name + '_replies.json'
 
     response = client.users_list()
     users = response["members"]
@@ -62,12 +61,17 @@ def get_messages(client, channel, name):
     get_replies(client, channel, name, messages)
 
 def get_replies(client, channel, name, messages):
+    out_threads = name + '_replies.json'
     threads = {}
 
     # Loop through all messages to check for replies. If we find them, follow
     # a similar procedure as above.
-    for message in messages:
-        ts = message['ts']
+    #
+    # Use the message iterator instead of a for loop otherwise we don't retry
+    # replies for messages which get rate limited.
+    message_iterator = 0
+    while message_iterator < len(messages):
+        ts = messages[message_iterator]['ts']
         print(f"Getting replies in {name} for: {ts}")
         replies = []
         try:
@@ -77,6 +81,24 @@ def get_replies(client, channel, name, messages):
             )
 
             replies.extend(thread['messages'])
+            while(thread['has_more']):
+                print(f'{ts} has more replies')
+                try:
+                    thread = client.conversations_replies(
+                        channel = channel,
+                        ts = ts,
+                        cursor = thread["response_metadata"]["next_cursor"]
+                    )
+                    replies.extend(thread['messages'])
+                except SlackApiError as e:
+                    if e.response['error'] == 'ratelimited':
+                        delay = int(e.response.headers['Retry-After'])
+                        print(f"Rate limited. Retrying in {delay} seconds")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        raise e
+            message_iterator += 1
         except SlackApiError as e:
             if e.response['error'] == 'ratelimited':
                 delay = int(e.response.headers['Retry-After'])
@@ -86,23 +108,6 @@ def get_replies(client, channel, name, messages):
             else:
                 raise e
 
-
-        while(thread['has_more']):
-            try:
-                thread = client.conversations_replies(
-                    channel = channel,
-                    ts = ts,
-                    cursor = thread["response_metadata"]["next_cursor"]
-                )
-                replies.extend(thread['messages'])
-            except SlackApiError as e:
-                if e.response['error'] == 'ratelimited':
-                    delay = int(e.response.headers['Retry-After'])
-                    print(f"Rate limited. Retrying in {delay} seconds")
-                    time.sleep(delay)
-                    continue
-                else:
-                    raise e
         threads[ts] = replies
 
     with open(out_threads, 'w') as outfile:
