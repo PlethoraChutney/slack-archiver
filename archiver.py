@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -31,7 +32,7 @@ def get_messages(client, channel, name):
         json.dump(users, outfile)
 
 
-    # This part is easy. Loop through the entire channel history until there
+    # Loop through the entire channel history until there
     # isn't any more, which Slack helpfully tells us
     messages = []
     history = client.conversations_history(
