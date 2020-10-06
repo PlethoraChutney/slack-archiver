@@ -1,13 +1,14 @@
 import os
 import sys
 import json
-from flask import Flask, request, make_response, render_template
+import time
+from flask import Flask
 from slack import WebClient
 from slack.errors import SlackApiError
-from slackeventsapi import SlackEventAdapter
-from flask_socketio import SocketIO
 
 app = Flask(__name__)
+# You need to put your slack bot token in the environment, and invite the
+# bot to any channels you want to use this in
 client = WebClient(token=os.environ['SLACK_BOT_TOKEN'])
 
 
@@ -24,11 +25,16 @@ if __name__ == "__main__":
         response = client.users_list()
         users = response["members"]
 
-        user_dict = {}
-        for user in users:
-            user_dict[user['id']] = user['profile']['real_name_normalized']
+        out_users = sys.argv[3] + '_users.json'
+        out_name = sys.argv[3] + '_messages.json'
+        out_threads = sys.argv[3] + '_replies.json'
+
+        with open(out_users, 'w') as outfile:
+            json.dump(users, outfile)
 
 
+        # This part is easy. Loop through the entire channel history until there
+        # isn't any more, which Slack helpfully tells us
         messages = []
         history = client.conversations_history(
             channel = input_channel
@@ -36,14 +42,58 @@ if __name__ == "__main__":
 
         while history['has_more']:
             messages.extend(history['messages'])
-            print(f'Fetching batch {history["response_metadata"]["next_cursor"]}')
+            print(f'Fetching message batch {history["response_metadata"]["next_cursor"]}')
             history = client.conversations_history(
                 channel = input_channel,
                 cursor = history["response_metadata"]["next_cursor"]
             )
 
-        with open('bt_data.json', 'w') as outfile:
+        with open(out_name, 'w') as outfile:
             json.dump(messages, outfile)
+
+        threads = {}
+
+        for message in messages:
+            ts = message['ts']
+            print(f"Getting replies for: {ts}")
+            replies = []
+            try:
+                thread = client.conversations_replies(
+                    channel = input_channel,
+                    ts = ts
+                )
+
+                replies.extend(thread['messages'])
+            except SlackApiError as e:
+                if e.response['error'] == 'ratelimited':
+                    delay = int(e.response.headers['Retry-After'])
+                    print(f"Rate limited. Retrying in {delay} seconds")
+                    time.sleep(delay)
+                    continue
+                else:
+                    raise e
+
+
+            while(thread['has_more']):
+                try:
+                    thread = client.conversations_replies(
+                        channel = input_channel,
+                        ts = ts,
+                        cursor = thread["response_metadata"]["next_cursor"]
+                    )
+                    replies.extend(thread['messages'])
+                except SlackApiError as e:
+                    if e.response['error'] == 'ratelimited':
+                        delay = int(e.response.headers['Retry-After'])
+                        print(f"Rate limited. Retrying in {delay} seconds")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        raise e
+            threads[ts] = replies
+
+        with open(out_threads, 'w') as outfile:
+            json.dump(threads, outfile)
 
 # For my reference:
 #   random: C8RTS98QM
