@@ -4,6 +4,7 @@ import sys
 import json
 import time
 import argparse
+import logging
 from slack import WebClient
 from slack.errors import SlackApiError
 
@@ -20,7 +21,7 @@ def get_channels(client):
 
 
 def get_messages(client, channel, name):
-
+    logging.info('Fetching %s messages', name)
     out_users = name + '_users.json'
     out_name = name + '_messages.json'
 
@@ -41,7 +42,7 @@ def get_messages(client, channel, name):
     while history['has_more']:
         try:
             messages.extend(history['messages'])
-            print(f'Fetching {name} message batch {history["response_metadata"]["next_cursor"]}')
+            logging.debug('Fetching %s message batch %s', name, history["response_metadata"]["next_cursor"])
             history = client.conversations_history(
                 channel = channel,
                 cursor = history["response_metadata"]["next_cursor"]
@@ -49,7 +50,7 @@ def get_messages(client, channel, name):
         except SlackApiError as e:
             if e.response['error'] == 'ratelimited':
                 delay = int(e.response.headers['Retry-After'])
-                print(f"Rate limited. Retrying in {delay} seconds")
+                logging.debug("Rate limited. Retrying in %i seconds", delay)
                 time.sleep(delay)
                 continue
             else:
@@ -72,7 +73,7 @@ def get_replies(client, channel, name, messages):
     message_iterator = 0
     while message_iterator < len(messages):
         ts = messages[message_iterator]['ts']
-        print(f"Getting replies in {name} for: {ts}")
+        logging.debug("Getting replies in %s for: %s", name, ts)
         replies = []
         try:
             thread = client.conversations_replies(
@@ -82,7 +83,7 @@ def get_replies(client, channel, name, messages):
 
             replies.extend(thread['messages'])
             while(thread['has_more']):
-                print(f'{ts} has more replies')
+                logging.debug('%s has more replies', ts)
                 try:
                     thread = client.conversations_replies(
                         channel = channel,
@@ -93,7 +94,7 @@ def get_replies(client, channel, name, messages):
                 except SlackApiError as e:
                     if e.response['error'] == 'ratelimited':
                         delay = int(e.response.headers['Retry-After'])
-                        print(f"Rate limited. Retrying in {delay} seconds")
+                        logging.debug("Rate limited. Retrying in %i seconds", delay)
                         time.sleep(delay)
                         continue
                     else:
@@ -102,7 +103,7 @@ def get_replies(client, channel, name, messages):
         except SlackApiError as e:
             if e.response['error'] == 'ratelimited':
                 delay = int(e.response.headers['Retry-After'])
-                print(f"Rate limited. Retrying in {delay} seconds")
+                logging.debug("Rate limited. Retrying in %i seconds", delay)
                 time.sleep(delay)
                 continue
             else:
@@ -128,17 +129,26 @@ parser.add_argument('--archive-channel',
 parser.add_argument('--archive-all',
                     help = 'Archive all channels of which the bot is a member',
                     action = 'store_true')
+parser.add_argument('-v', '--verbose',
+                    help = 'Increase logger verbosity',
+                    action = 'count',
+                    default = 0)
+
 
 def main():
     args = parser.parse_args()
     client = WebClient(token = args.token)
 
+    levels = [logging.WARNING, logging.INFO, logging.DEBUG]
+    level = levels[min(len(levels) - 1, args.verbose)]
+    logging.basicConfig(level = level)
+
     try:
         client.auth_test()
-        print('Authentication successful.')
+        logging.info('Authentication successful.')
     except SlackApiError as e:
         if e.response['error'] == 'invalid_auth':
-            print('Authentication failed. Check slack bot token.')
+            logging.error('Authentication failed. Check slack bot token.')
         else:
             raise e
 
@@ -157,11 +167,10 @@ def main():
             try:
                 get_messages(client, channel_dict[channel], channel)
             except KeyError:
-                print(f'No channel called {channel}. Available channels:')
-                print(', '.join([key for key in channel_dict.keys()]))
+                logging.error("No channel called %s. Available channels:\n %s", channel, ', '.join([key for key in channel_dict.keys()]))
             except SlackApiError as e:
                 if e.response['error'] == 'not_in_channel':
-                    print(f'WARNING: Bot is not in {channel}. Skipping.')
+                    logging.warning('WARNING: Bot is not in %s. Skipping.', channel)
                 else:
                     raise e
 
@@ -170,3 +179,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    logging.info('Done.')
