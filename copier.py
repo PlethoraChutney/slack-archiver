@@ -46,12 +46,26 @@ def process_request():
 if __name__ == "__main__":
     if sys.argv[1] == 'events':
         app.run(port=3000)
-    elif sys.argv[1] == 'conversations':
+    elif sys.argv[1] == 'get_channels':
         response = client.conversations_list(
             types = 'public_channel, private_channel'
         )
         for item in response['channels']:
             print(f"{item['name']}: {item['id']}")
+    elif sys.argv[1] == 'get_messages_BT':
+        response = client.users_list()
+        users = response["members"]
+
+        user_dict = {}
+        for user in users:
+            user_dict[user['id']] = user['profile']['real_name_normalized']
+
+
+        history = client.conversations_history(
+            channel = 'GGAMDAFC1'
+        )
+        print(history)
+
 
 # For my reference:
 #   random: C8RTS98QM
