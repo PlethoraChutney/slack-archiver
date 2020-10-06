@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from flask import Flask, request, make_response, render_template
 from slack import WebClient
 from slack.errors import SlackApiError
@@ -66,18 +67,16 @@ if __name__ == "__main__":
             channel = 'GGAMDAFC1'
         )
 
-        i = 0
         while history['has_more']:
-            messages.append(history['messages'])
+            messages.extend(history['messages'])
             print(f'Fetching batch {history["response_metadata"]["next_cursor"]}')
             history = client.conversations_history(
-                channel = 'GGAMDAFC1'
+                channel = 'GGAMDAFC1',
                 cursor = history["response_metadata"]["next_cursor"]
             )
-            i += 1
-            if i > 4:
-                break
-        print(messages)
+
+        with open('bt_data.json', 'w') as outfile:
+            json.dump(messages, outfile)
 
 # For my reference:
 #   random: C8RTS98QM
