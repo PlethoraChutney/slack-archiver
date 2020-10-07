@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import os
-import sys
 import json
 import time
 import argparse
 import logging
 from slack import WebClient
 from slack.errors import SlackApiError
+
 
 def get_channels(client):
     response = client.conversations_list(
@@ -30,7 +30,6 @@ def get_messages(client, channel, name):
 
     with open(out_users, 'w') as outfile:
         json.dump(users, outfile)
-
 
     # Loop through the entire channel history until there
     # isn't any more, which Slack helpfully tells us
@@ -60,6 +59,7 @@ def get_messages(client, channel, name):
         json.dump(messages, outfile)
 
     get_replies(client, channel, name, messages)
+
 
 def get_replies(client, channel, name, messages):
     out_threads = name + '_replies.json'
@@ -173,8 +173,6 @@ def main():
                     logging.warning('WARNING: Bot is not in %s. Skipping.', channel)
                 else:
                     raise e
-
-
 
 
 if __name__ == "__main__":
