@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %} GRU Slack Archive - Home {% endblock %}
+{% block head %}
+  {{ super() }}
+{% endblock %}
+{% block body %}
+<body>
+  {% for message in messages|reverse %}
+    {% include '_message.html' %}
+  {% endfor %}
+</body>
+{% endblock %}
