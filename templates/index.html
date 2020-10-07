@@ -5,8 +5,16 @@
 {% endblock %}
 {% block body %}
 <body>
-  {% for message in messages|reverse %}
-    {% include '_message.html' %}
+  {% for timestamp in messages|reverse %}
+    {% for message in timestamp[0:1] %}
+      {% include "_message.html" %}
+    {% endfor %}
+    <div class="reply">
+    {% for message in timestamp[1:] %}
+      {% include '_reply.html' %}
+    {% endfor %}
+    </div>
+    <hr>
   {% endfor %}
 </body>
 {% endblock %}
