@@ -24,3 +24,10 @@ to these DMs, as well.
   * `im:read`
   * `mpim:history`
   * `mpim:read`
+
+# Slack Visualizer
+An extremely rudamentary visualizer for the JSON archives. Uses a Jinja2 template
+to make a huge, plain html file for each channel archive. Just need to point it
+to the directory which contains all of your channels' .json files, it'll do the
+rest. Right now it doesn't include reactions, and links are not present for some
+reason.
