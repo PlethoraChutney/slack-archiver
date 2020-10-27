@@ -42,7 +42,7 @@ def main():
 
     channels = []
     for file in files:
-        channel = file.split('_')[0]
+        channel = '_'.join(file.split('_')[:-1])
         if channel not in channels:
             channels.append(channel)
 

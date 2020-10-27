@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 import json
 import time
 import argparse
@@ -118,7 +119,7 @@ def get_replies(client, channel, name, messages):
 parser = argparse.ArgumentParser(description = 'Archive messages from Slack')
 parser.add_argument('--token',
                     help = 'Slack bot authentication token. If this option is not used, will pull token from SLACK_BOT_TOKEN environment variable.',
-                    default = os.environ['SLACK_BOT_TOKEN'])
+                    default = None)
 parser.add_argument('--get-channels',
                     help = 'Print list of channels and ids',
                     action = 'store_true')
@@ -137,11 +138,26 @@ parser.add_argument('-v', '--verbose',
 
 def main():
     args = parser.parse_args()
-    client = WebClient(token = args.token)
+
+    if args.token is None:
+        try:
+            token = os.environ['SLACK_BOT_TOKEN']
+        except KeyError as e:
+            logging.error('Must give slack bot token as environment variable or argument')
+            sys.exit(1)
+    else:
+        token = args.token
 
     levels = [logging.WARNING, logging.INFO, logging.DEBUG]
     level = levels[min(len(levels) - 1, args.verbose)]
     logging.basicConfig(level = level)
+
+
+    try:
+        client = WebClient(token = args.token)
+    except KeyError as e:
+        logging.error('Failed to create Slack Client. Check bot token.')
+        sys.exit(1)
 
     try:
         client.auth_test()
@@ -149,6 +165,7 @@ def main():
     except SlackApiError as e:
         if e.response['error'] == 'invalid_auth':
             logging.error('Authentication failed. Check slack bot token.')
+            sys.exit(1)
         else:
             raise e
 
@@ -161,6 +178,8 @@ def main():
         channel_list = args.archive_channel
     elif args.archive_all:
         channel_list = channel_dict.keys()
+    else:
+        channel_list = False
 
     if channel_list:
         for channel in channel_list:
