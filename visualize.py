@@ -2,12 +2,24 @@ import json
 import os
 import jinja2
 import argparse
+import re
 from datetime import datetime
 
 templateLoader = jinja2.FileSystemLoader(searchpath = "templates")
 templateEnv = jinja2.Environment(loader=templateLoader)
 TEMPLATE_FILE = "index.html"
 template = templateEnv.get_template(TEMPLATE_FILE)
+
+emoji_search = re.compile(':(.*?):')
+
+emoji_dict = {}
+with open('emoji.json', 'r') as f:
+    emoji_list = json.load(f)
+for emoji in emoji_list:
+    emoji_dict[emoji['short_name']] = ''.join(
+        # get the emoji list into something a browser can read
+        [f'&#x{x};' for x in emoji['unified'].split('-')])
+
 
 
 def visualize(path, channel_name):
@@ -16,8 +28,11 @@ def visualize(path, channel_name):
 
     with open(os.path.join(path, user_file), 'r') as infile:
         raw_users = json.load(infile)
-    with open(os.path.join(path, reply_file), 'r') as infile:
-        replies = json.load(infile)
+    try:
+        with open(os.path.join(path, reply_file), 'r') as infile:
+            replies = json.load(infile)
+    except FileNotFoundError:
+        return
 
     users = {}
     for user in raw_users:
@@ -27,11 +42,51 @@ def visualize(path, channel_name):
         for message in replies[timestamp]:
             for key in users:
                 message['text'] = message['text'].replace(key, users[key])
-            message['format_ts'] = datetime.fromtimestamp(float(message['ts'])).strftime('%Y-%m-%d %H:%M:%S')
+            message['format_ts'] = datetime.fromtimestamp(
+                float(message['ts'])
+                ).strftime('%Y-%m-%d %H:%M:%S')
 
-    output_text = template.render(messages = replies.values(), users = users)
+            e_match = re.search(emoji_search, message['text'])
+            while e_match:
+                try:
+                    unicode_emoji = emoji_dict[e_match.group(1)]
+                    message['text'] = re.sub(emoji_search, unicode_emoji, message['text'])
+                except KeyError:
+                    # not really worth figuring out a way to handle stuff that's not in the
+                    # emoji dict
+                    break
+                e_match = re.search(emoji_search, message['text'])
 
-    outfile_name = f"{channel_name}-archive.html"
+            
+            message['processed_reactions'] = []
+            if 'reactions' in message:
+                for emoji_type in message['reactions']:
+                    try:
+                        unicode_emoji = emoji_dict[emoji_type['name']]
+                    except KeyError:
+                        if emoji_type['name'] in [
+                            'column',
+                            'enac',
+                            'troll',
+                            'thumbsup_all',
+                            'vitrobot',
+                            'hotspur'
+                        ]:
+                            continue
+                        split_emoji = emoji_type['name'].split('::')
+                        unicode_emoji = []
+                        for emoji in split_emoji:
+                            unicode_emoji.append(emoji_dict[emoji])
+                        unicode_emoji = ''.join(unicode_emoji)
+                    count = emoji_type['count']
+                message['processed_reactions'].append([unicode_emoji, count])
+
+    output_text = template.render(
+        channel = channel_name,
+        messages = replies.values(),
+        users = users)
+
+    outfile_name = f"{channel_name}.html"
     with open(outfile_name, 'w', encoding = 'utf-8') as outfile:
         outfile.write(output_text)
 
@@ -43,7 +98,7 @@ def main():
     channels = []
     for file in files:
         channel = '_'.join(file.split('_')[:-1])
-        if channel not in channels:
+        if channel and channel not in channels:
             channels.append(channel)
 
     for channel in channels:

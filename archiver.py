@@ -34,19 +34,19 @@ def get_messages(client, channel, name):
 
     # Loop through the entire channel history until there
     # isn't any more, which Slack helpfully tells us
-    messages = []
     history = client.conversations_history(
         channel = channel
     )
+    messages = history['messages']
 
     while history['has_more']:
         try:
-            messages.extend(history['messages'])
             logging.debug('Fetching %s message batch %s', name, history["response_metadata"]["next_cursor"])
             history = client.conversations_history(
                 channel = channel,
                 cursor = history["response_metadata"]["next_cursor"]
             )
+            messages.extend(history['messages'])
         except SlackApiError as e:
             if e.response['error'] == 'ratelimited':
                 delay = int(e.response.headers['Retry-After'])
