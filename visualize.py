@@ -58,7 +58,7 @@ def visualize(path, channel_name):
                 e_match = re.search(emoji_search, message['text'])
 
             
-            message['processed_reactions'] = []
+            
             if 'reactions' in message:
                 for emoji_type in message['reactions']:
                     try:
@@ -79,7 +79,10 @@ def visualize(path, channel_name):
                             unicode_emoji.append(emoji_dict[emoji])
                         unicode_emoji = ''.join(unicode_emoji)
                     count = emoji_type['count']
-                message['processed_reactions'].append([unicode_emoji, count])
+                    try:
+                        message['processed_reactions'].append([unicode_emoji, count])
+                    except KeyError:
+                        message['processed_reactions'] = [[unicode_emoji, count]]
 
     output_text = template.render(
         channel = channel_name,
