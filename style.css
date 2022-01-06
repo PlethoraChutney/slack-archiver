@@ -31,3 +31,16 @@ h1 {
     color: #AAAAAA;
     font-family: "Open Sans", sans-serif;
 }
+
+.reactions {
+    margin: 5px;
+    display: flex;
+    flex-direction: row;
+}
+
+.react {
+    background-color: #EEEEEE;
+    padding: 3px;
+    border: 1px solid black;
+    border-radius: 3px;
+}
