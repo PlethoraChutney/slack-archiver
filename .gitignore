@@ -2,4 +2,4 @@ venv/
 *.json
 *archive.html
 *.7z
-
+/*.html
