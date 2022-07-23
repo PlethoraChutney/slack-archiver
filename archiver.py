@@ -5,6 +5,7 @@ import json
 import time
 import argparse
 import logging
+import datetime
 from slack import WebClient
 from slack.errors import SlackApiError
 
@@ -26,45 +27,75 @@ def get_messages(client, channel, name):
     out_users = name + '_users.json'
     out_name = name + '_messages.json'
 
-    response = client.users_list()
+    try:
+        response = client.users_list()
+    except SlackApiError as e:
+            if e.response['error'] == 'ratelimited':
+                delay = int(e.response.headers['Retry-After'])
+                logging.debug("Rate limited. Retrying in %i seconds", delay)
+                time.sleep(delay + 1)
+                response = client.users_list()
     users = response["members"]
 
     with open(out_users, 'w') as outfile:
         json.dump(users, outfile)
+
+    
+    if os.path.exists(out_name):
+        with open(out_name, 'r') as f:
+            messages = json.load(f)
+        timestamps = [float(x['ts']) for x in messages]
+    else:
+        messages = []
+        timestamps = []
 
     # Loop through the entire channel history until there
     # isn't any more, which Slack helpfully tells us
     history = client.conversations_history(
         channel = channel
     )
-    messages = history['messages']
+
+    for message in history['messages']:
+        if float(message['ts']) not in timestamps:
+            messages.append(message)
 
     while history['has_more']:
         try:
-            logging.debug('Fetching %s message batch %s', name, history["response_metadata"]["next_cursor"])
+            logging.info(f"Continuing to collect messages")
             history = client.conversations_history(
                 channel = channel,
                 cursor = history["response_metadata"]["next_cursor"]
             )
-            messages.extend(history['messages'])
+            for message in history['messages']:
+                if float(message['ts']) not in timestamps:
+                    messages.append(message)
         except SlackApiError as e:
             if e.response['error'] == 'ratelimited':
                 delay = int(e.response.headers['Retry-After'])
-                logging.debug("Rate limited. Retrying in %i seconds", delay)
+                logging.info("Rate limited. Retrying in %i seconds", delay)
                 time.sleep(delay)
                 continue
             else:
                 raise e
+    logging.info("Stopping")
+    logging.debug('\n'.join([x['text'] for x in history['messages']]))
+
+    messages = sorted(messages, key = lambda d: float(d['ts']))
 
     with open(out_name, 'w') as outfile:
         json.dump(messages, outfile)
 
-    get_replies(client, channel, name, messages)
+    get_replies(client, channel, name, messages, timestamps)
 
 
-def get_replies(client, channel, name, messages):
+def get_replies(client, channel, name, messages, timestamps):
     out_threads = name + '_replies.json'
-    threads = {}
+
+    if os.path.exists(out_threads):
+        with open(out_threads, 'r') as f:
+            threads = json.load(f)
+    else:
+        threads = {}
 
     # Loop through all messages to check for replies. If we find them, follow
     # a similar procedure as above.
@@ -72,9 +103,15 @@ def get_replies(client, channel, name, messages):
     # Use the message iterator instead of a for loop otherwise we don't retry
     # replies for messages which get rate limited.
     message_iterator = 0
+    get_replies = [float(x['ts']) not in timestamps for x in messages]
     while message_iterator < len(messages):
         ts = messages[message_iterator]['ts']
-        logging.debug("Getting replies in %s for: %s", name, ts)
+        if not get_replies[message_iterator]:
+            logging.debug(f'Skipping {datetime.datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M:%S")}: {ts}')
+            message_iterator += 1
+            continue
+
+        logging.debug(f'Getting replies for {datetime.datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M:%S")}: {ts}')
         replies = []
         try:
             thread = client.conversations_replies(

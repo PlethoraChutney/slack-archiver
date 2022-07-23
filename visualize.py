@@ -38,6 +38,8 @@ def visualize(path, channel_name):
     for user in raw_users:
         users[user['id']] = user['profile']['real_name']
 
+    replies = dict(sorted(replies.items(), reverse = True))
+
     for timestamp in replies.keys():
         for message in replies[timestamp]:
             for key in users:
