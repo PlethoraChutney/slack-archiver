@@ -5,7 +5,8 @@ import argparse
 import re
 from datetime import datetime
 
-templateLoader = jinja2.FileSystemLoader(searchpath = "templates")
+scriptdir = os.path.split(os.path.realpath(__file__))[0]
+templateLoader = jinja2.FileSystemLoader(searchpath = os.path.join(scriptdir, 'templates'))
 templateEnv = jinja2.Environment(loader=templateLoader)
 TEMPLATE_FILE = "index.html"
 template = templateEnv.get_template(TEMPLATE_FILE)
@@ -13,7 +14,7 @@ template = templateEnv.get_template(TEMPLATE_FILE)
 emoji_search = re.compile(':(.*?):')
 
 emoji_dict = {}
-with open('emoji.json', 'r') as f:
+with open(os.path.join(scriptdir, 'emoji.json'), 'r') as f:
     emoji_list = json.load(f)
 for emoji in emoji_list:
     emoji_dict[emoji['short_name']] = ''.join(
