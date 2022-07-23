@@ -10,7 +10,8 @@ After installing and inviting union-archiver to the desired channels, use
 the bot token to archive all messages into JSON.
 
 ## Requirements
-In addition to the python packages, you must give your bot the following scopes:
+In addition to the python packages (`python -m pip install -r requirements.txt`),
+you must give your bot the following scopes:
   * `channels:history`
   * `channels:read`
   * `groups:history`
@@ -25,9 +26,31 @@ to these DMs, as well.
   * `mpim:history`
   * `mpim:read`
 
+## Usage
+Invite the bot to whatever channels you like (easiest way is to try to @ it in the channel)
+and then run
+
+`archiver.py --token {your-slack-token} --archive-all`
+
+or give it the
+name of a specific channel:
+  
+`archiver.py --token {slack-token} --archive-channel general`
+
 # Slack Visualizer
-An extremely rudamentary visualizer for the JSON archives. Uses a Jinja2 template
+## Purpose
+An extremely rudimentary visualizer for the JSON archives. Uses a Jinja2 template
 to make a huge, plain html file for each channel archive. Just need to point it
 to the directory which contains all of your channels' .json files, it'll do the
-rest. Right now it doesn't include reactions, and links are not present for some
-reason.
+rest.
+
+## Usage
+Easy: `visualizer.py /path/to/json/directory`
+
+## To Do
+ - Visualizer doesn't pull links right now
+ - Might be useful to download files as well
+ - Eventually, it would probably be good to paginate the results
+
+Also, this is one of those projects that kinda grew organically out of a much
+simpler script. Should probably just re-build it now that it's this.
