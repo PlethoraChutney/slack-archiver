@@ -2,12 +2,13 @@
 <html>
 <link rel="stylesheet" href="style.css">
 <head>
-  <link href="https://fonts.googleapis.com/css2?family=Open+Sans&family=Roboto&display=swap" rel="stylesheet">
   {% block head %}
   <title>{% block title %}{% endblock %}</title>
   {% endblock %}
 </head>
 <body>
+  <div id="mouseover-container" class="hidden"></div>
   {% block body %}{% endblock %}
+  <script src="main.js"></script>
 </body>
 </html>

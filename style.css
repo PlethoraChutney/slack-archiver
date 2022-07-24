@@ -1,4 +1,6 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins&display=swap');
 html {
+    font-family: Poppins, sans-serif;
     background-color: #FFFFFF;
 }
 
@@ -43,4 +45,23 @@ h1 {
     padding: 3px;
     border: 1px solid black;
     border-radius: 3px;
+}
+
+#mouseover-container {
+    position: absolute;
+    top: 0;
+    min-width: 100px;
+    padding: 10px;
+    margin: 20px;
+    background-color: #ffe7ad;
+    border: 1px solid black;
+}
+
+#mouseover-container > p {
+    margin: 0;
+}
+
+.hidden {
+    display: none;
+    visibility: hidden;
 }
