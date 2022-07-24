@@ -4,7 +4,7 @@
 <p class="reply main">{{ reply.text }}</p>
 <div class="reply reactions">
   {% for reaction in reply.reactions %}
-    <div class="react" data-users="{{reaction.users}}">
+    <div class="react" data-users="{{','.join(reaction.users)}}">
       {{ reaction.name }} {{ reaction.count }}
     </div>
   {% endfor %}

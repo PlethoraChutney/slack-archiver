@@ -21,17 +21,11 @@ h1 {
 }
 
 .username {
-    font-family: "Open Sans", sans-serif;
     font-weight: bold;
-}
-
-.main {
-    font-family: "Roboto", sans-serif;
 }
 
 .timestamp {
     color: #AAAAAA;
-    font-family: "Open Sans", sans-serif;
 }
 
 .reactions {
