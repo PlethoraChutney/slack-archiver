@@ -1,236 +1,323 @@
 #!/usr/bin/env python3
 import os
 import sys
+import re
 import json
-import time
 import argparse
 import logging
+import time
 import datetime
 from slack import WebClient
 from slack.errors import SlackApiError
 
+script_dir = os.path.split(os.path.realpath(__file__))[0]
 
-def get_channels(client):
-    response = client.conversations_list(
-        types = 'public_channel, private_channel'
-    )
+def create_client(token:str) -> WebClient:
+    if token is None:
+        try:
+            token = os.environ['SLACK_TOKEN']
+        except KeyError:
+            logging.error('No slack bot token given.')
+            sys.exit(1)
 
-    channel_dict = {}
-    for c in response['channels']:
-        channel_dict[c['name']] = c['id']
-
-    return(channel_dict)
-
-
-def get_messages(client, channel, name):
-    logging.info('Fetching %s messages', name)
-    out_users = name + '_users.json'
-    out_name = name + '_messages.json'
-
+    client = WebClient(token = token)
     try:
-        response = client.users_list()
+        client.auth_test()
+        logging.info('Slack authentication successful.')
     except SlackApiError as e:
-            if e.response['error'] == 'ratelimited':
-                delay = int(e.response.headers['Retry-After'])
-                logging.debug("Rate limited. Retrying in %i seconds", delay)
-                time.sleep(delay + 1)
-                response = client.users_list()
-    users = response["members"]
+        if e.response['error'] == 'invalid_auth':
+            logging.error('Authentication failed. Check slack bot token.')
+            sys.exit(2)
+        else:
+            raise e
 
-    with open(out_users, 'w') as outfile:
-        json.dump(users, outfile)
+    return client
 
-    
-    if os.path.exists(out_name):
-        with open(out_name, 'r') as f:
-            messages = json.load(f)
-        timestamps = [float(x['ts']) for x in messages]
-    else:
-        messages = []
-        timestamps = []
-
-    # Loop through the entire channel history until there
-    # isn't any more, which Slack helpfully tells us
-    history = client.conversations_history(
-        channel = channel
-    )
-
-    for message in history['messages']:
-        if float(message['ts']) not in timestamps:
-            messages.append(message)
-
-    while history['has_more']:
-        try:
-            logging.info(f"Continuing to collect messages")
-            history = client.conversations_history(
-                channel = channel,
-                cursor = history["response_metadata"]["next_cursor"]
+class Scraper(object):
+    def __init__(self, client:WebClient, targets:list) -> None:
+        self.emoji_dict = {}
+        with open(os.path.join(script_dir, 'emoji.json'), 'r') as f:
+            emoji_list = json.load(f)
+        for emoji in emoji_list:
+            self.emoji_dict[emoji['short_name']] = ''.join(
+                # get the emoji list into something a browser can read
+                [f'&#x{e};' for e in emoji['unified'].split('-')]
             )
-            for message in history['messages']:
-                if float(message['ts']) not in timestamps:
-                    messages.append(message)
+
+
+        self.client = client
+        channels = client.conversations_list(
+            types = 'public_channel, private_channel'
+        )
+        self.channel_dict = {c['name']: c['id'] for c in channels['channels']}
+        self.message_data = {}
+            
+        if targets == 'all':
+            self.targets = list(self.channel_dict.keys())
+        else:
+            good_targets = []
+            for target in targets:
+                if target in self.channel_dict.values():
+                    logging.error('Give channel names, not IDs')
+                    sys.exit(4)
+                elif target in self.channel_dict:
+                    good_targets.append(target)
+                else:
+                    logging.error(f'Channel "{target}" not found.')
+                    sys.exit(4)
+            self.targets = good_targets
+
+        try:
+            user_response = client.users_list()
         except SlackApiError as e:
-            if e.response['error'] == 'ratelimited':
-                delay = int(e.response.headers['Retry-After'])
-                logging.info("Rate limited. Retrying in %i seconds", delay)
-                time.sleep(delay)
-                continue
-            else:
-                raise e
-    logging.info("Stopping")
-    logging.debug('\n'.join([x['text'] for x in history['messages']]))
+                if e.response['error'] == 'ratelimited':
+                    delay = int(e.response.headers['Retry-After'])
+                    logging.debug(f"Rate limited. Retrying in {delay} seconds")
+                    time.sleep(delay)
+                    user_response = client.users_list()
 
-    messages = sorted(messages, key = lambda d: float(d['ts']))
+        self.users = {user['id']: user['profile']['real_name'] for user in user_response["members"]}
 
-    with open(out_name, 'w') as outfile:
-        json.dump(messages, outfile)
+    def username_replace(self, text:str) -> str:
+        for user_id, user_name in self.users.items():
+            text = re.sub(f'<@{user_id}>', f'@{user_name}', text)
 
-    get_replies(client, channel, name, messages, timestamps)
+        return text
+
+    def emoji_replace(self, text:str) -> str:
+        e_match = re.search(':(.*?):', text)
+        while e_match:
+            try:
+                unicode_emoji = self.emoji_dict[e_match.group(1)]
+                text = text.replace(e_match.group(0), unicode_emoji)
+            except KeyError:
+                text = text.replace(e_match.group(0), f"<{e_match.group(1)}>")
+
+            e_match = re.search(':(.*?):', text)
+
+        return text
 
 
-def get_replies(client, channel, name, messages, timestamps):
-    out_threads = name + '_replies.json'
-
-    if os.path.exists(out_threads):
-        with open(out_threads, 'r') as f:
-            threads = json.load(f)
-    else:
-        threads = {}
-
-    # Loop through all messages to check for replies. If we find them, follow
-    # a similar procedure as above.
-    #
-    # Use the message iterator instead of a for loop otherwise we don't retry
-    # replies for messages which get rate limited.
-    message_iterator = 0
-    get_replies = [float(x['ts']) not in timestamps for x in messages]
-    while message_iterator < len(messages):
-        ts = messages[message_iterator]['ts']
-        if not get_replies[message_iterator]:
-            logging.debug(f'Skipping {datetime.datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M:%S")}: {ts}')
-            message_iterator += 1
-            continue
-
-        logging.debug(f'Getting replies for {datetime.datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M:%S")}: {ts}')
-        replies = []
+    def timestamps(self, channel) -> list:
         try:
-            thread = client.conversations_replies(
-                channel = channel,
-                ts = ts
-            )
+            return self.message_data[channel].keys()
+        except KeyError:
+            return []
 
-            replies.extend(thread['messages'])
-            while(thread['has_more']):
-                logging.debug('%s has more replies', ts)
-                try:
-                    thread = client.conversations_replies(
-                        channel = channel,
-                        ts = ts,
-                        cursor = thread["response_metadata"]["next_cursor"]
+    def process_messages(self, channel:str, messages:list) -> dict:
+        processed_messages = {}
+        for message in messages:
+            if float(message['ts']) in self.timestamps(channel):
+                continue
+
+            message['text'] = self.username_replace(message['text'])
+            message['text'] = self.emoji_replace(message['text'])
+
+            message_dict = {
+                'message': message
+            }
+
+            replies = []
+            try:
+                reply_request = self.client.conversations_replies(
+                    channel = self.channel_dict[channel],
+                    ts = message['ts']
+                )
+            except SlackApiError as e:
+                if e.response['error'] == 'ratelimited':
+                    delay = int(e.response.headers['Retry-After'])
+                    logging.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    time.sleep(delay)
+                    reply_request = self.client.conversations_replies(
+                        channel = self.channel_dict[channel],
+                        ts = message['ts']
                     )
-                    replies.extend(thread['messages'])
+                else:
+                    raise e
+
+            reply_batch = reply_request['messages']
+
+            if len(reply_batch) != 1:
+                
+                # the first message in the replies is the original (parent)
+                # message, so we need to delete it
+                del reply_batch[0]
+                for reply in reply_batch:
+                    reply['text'] = self.username_replace(reply['text'])
+                    reply['text'] = self.emoji_replace(reply['text'])
+                    reply['ts'] = float(reply['ts'])
+                    replies.append(reply)
+
+            while reply_request['has_more']:
+                try:
+                    reply_request = self.client.conversations_replies(
+                        channel = self.channel_dict[channel],
+                        ts = message['ts'],
+                        cursor = reply_request['reponse_metadata']['next_cursor']
+                    )
+
+                    for reply in reply_request['messages']:
+                        reply['text'] = self.username_replace(reply['text'])
+                        reply['text'] = self.emoji_replace(reply['text'])
+                        reply['ts'] = float(reply['ts'])
+                        replies.append(reply)
+
                 except SlackApiError as e:
                     if e.response['error'] == 'ratelimited':
                         delay = int(e.response.headers['Retry-After'])
-                        logging.debug("Rate limited. Retrying in %i seconds", delay)
+                        logging.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                         time.sleep(delay)
                         continue
                     else:
                         raise e
-            message_iterator += 1
-        except SlackApiError as e:
-            if e.response['error'] == 'ratelimited':
-                delay = int(e.response.headers['Retry-After'])
-                logging.debug("Rate limited. Retrying in %i seconds", delay)
-                time.sleep(delay)
-                continue
-            else:
-                raise e
+            
+            message_dict['replies'] = sorted(replies, key = lambda d: d['ts'])
+            processed_messages[float(message['ts'])] = message_dict
 
-        threads[ts] = replies
-
-    with open(out_threads, 'w') as outfile:
-        json.dump(threads, outfile)
+        return processed_messages
 
 
-parser = argparse.ArgumentParser(description = 'Archive messages from Slack')
-parser.add_argument('--token',
-                    help = 'Slack bot authentication token. If this option is not used, will pull token from SLACK_BOT_TOKEN environment variable.',
-                    default = None)
-parser.add_argument('--get-channels',
-                    help = 'Print list of channels and ids',
-                    action = 'store_true')
-parser.add_argument('--archive-channel',
-                    help = 'Archive a specific channel(s) by name',
-                    type = str,
-                    nargs = '+')
-parser.add_argument('--archive-all',
-                    help = 'Archive all channels of which the bot is a member',
-                    action = 'store_true')
-parser.add_argument('-v', '--verbose',
-                    help = 'Increase logger verbosity',
-                    action = 'count',
-                    default = 0)
-
-
-def main():
-    args = parser.parse_args()
-
-    if args.token is None:
-        try:
-            token = os.environ['SLACK_BOT_TOKEN']
-        except KeyError as e:
-            logging.error('Must give slack bot token as environment variable or argument')
-            sys.exit(1)
-    else:
-        token = args.token
-
-    levels = [logging.WARNING, logging.INFO, logging.DEBUG]
-    level = levels[min(len(levels) - 1, args.verbose)]
-    logging.basicConfig(level = level)
-
-
-    try:
-        client = WebClient(token = args.token)
-    except KeyError as e:
-        logging.error('Failed to create Slack Client. Check bot token.')
-        sys.exit(1)
-
-    try:
-        client.auth_test()
-        logging.info('Authentication successful.')
-    except SlackApiError as e:
-        if e.response['error'] == 'invalid_auth':
-            logging.error('Authentication failed. Check slack bot token.')
-            sys.exit(1)
-        else:
-            raise e
-
-    channel_dict = get_channels(client)
-    if args.get_channels:
-        for key in channel_dict.keys():
-            print(f"{key} {channel_dict[key]}")
-
-    if args.archive_channel:
-        channel_list = args.archive_channel
-    elif args.archive_all:
-        channel_list = channel_dict.keys()
-    else:
-        channel_list = False
-
-    if channel_list:
-        for channel in channel_list:
+    def scrape_channel(self, channel):
+        message_batch = False
+        while not message_batch:
             try:
-                get_messages(client, channel_dict[channel], channel)
-            except KeyError:
-                logging.error("No channel called %s. Available channels:\n %s", channel, ', '.join([key for key in channel_dict.keys()]))
+                message_batch = self.client.conversations_history(
+                    channel = self.channel_dict[channel]
+                )
             except SlackApiError as e:
-                if e.response['error'] == 'not_in_channel':
-                    logging.warning('WARNING: Bot is not in %s. Skipping.', channel)
+                if e.response['error'] == 'ratelimited':
+                    delay = int(e.response.headers['Retry-After'])
+                    logging.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    time.sleep(delay)
+                    continue
                 else:
                     raise e
 
+        if channel not in self.message_data:
+            self.message_data[channel] = {}
 
-if __name__ == "__main__":
-    main()
-    logging.info('Done.')
+        self.message_data[channel].update(
+            self.process_messages(channel, message_batch['messages'])
+        )
+
+        while message_batch['has_more']:
+            try:
+                message_batch = self.client.conversations_history(
+                    channel = self.channel_dict[channel],
+                    cursor = message_batch['response_metadata']['next_cursor']
+                )
+            except SlackApiError as e:
+                if e.response['error'] == 'ratelimited':
+                    delay = int(e.response.headers['Retry-After'])
+                    logging.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    time.sleep(delay)
+                    continue
+                else:
+                    raise e
+
+            if channel not in self.message_data:
+                self.message_data[channel] = {}
+
+            self.message_data[channel].update(
+                self.process_messages(channel, message_batch['messages'])
+            )
+
+        # sort by key
+        self.message_data[channel] = dict(sorted(self.message_data[channel].items()))
+
+    def scrape_channels(self):
+        for channel in self.targets:
+            self.scrape_channel(channel)
+            
+
+
+
+
+def scrape_session(args):
+    client = create_client(args.token)
+    if args.archive_all:
+        targets = 'all'
+    else:
+        targets = args.select_channels
+    scraper = Scraper(client, targets)
+    scraper.scrape_channels()
+
+
+    for channel in scraper.targets:
+        for message in scraper.message_data[channel].values():
+            print(message['message']['text'])
+    
+
+parser = argparse.ArgumentParser(
+    description= 'Scrape a slack workspace and save the messages to JSON'
+)
+
+verbosity = parser.add_argument_group('verbosity')
+vxg = verbosity.add_mutually_exclusive_group()
+vxg.add_argument(
+    '-q', '--quiet',
+    help = 'Print Errors only',
+    action = 'store_const',
+    dest = 'verbosity',
+    const = 'q'
+)
+vxg.add_argument(
+    '-v', '--verbose',
+    help = 'Print Info, Warnings, and Errors. Default state.',
+    action = 'store_const',
+    dest = 'verbosity',
+    const = 'v'
+)
+vxg.add_argument(
+    '--debug',
+    help = 'Print debug output.',
+    action = 'store_const',
+    dest = 'verbosity',
+    const = 'd'
+)
+
+subparsers = parser.add_subparsers()
+
+scrape = subparsers.add_parser(
+    'scrape',
+    help = 'Scrape the Slack workspace'
+)
+scrape.set_defaults(func = scrape_session)
+scrape.add_argument(
+    '-t',
+    '--token',
+    help = 'Slack bot token. Should start with "xoxb". If not provided, will be pulled from $SLACK_TOKEN'
+)
+channels = scrape.add_mutually_exclusive_group(required = True)
+channels.add_argument(
+    '--archive-all',
+    action = 'store_true',
+    help = 'Archive all channels for which the bot is a member'
+)
+channels.add_argument(
+    '--select-channels',
+    nargs = '+',
+    help = 'Space-separated list of channel names'
+)
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+
+    levels = {
+        'q': logging.ERROR,
+        'v': logging.INFO,
+        'd': logging.DEBUG
+    }
+
+    try:
+        level = levels[args.verbosity]
+    except KeyError:
+        level = logging.INFO
+
+    logging.basicConfig(
+        level = level,
+        format = '{levelname}: {message} ({filename})',
+        style = '{'
+    )
+
+    args.func(args)
