@@ -3,3 +3,4 @@ venv/
 *archive.html
 *.7z
 /*.html
+*.log

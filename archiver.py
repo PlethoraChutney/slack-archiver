@@ -94,7 +94,7 @@ class Scraper(object):
 
     def url_replace(self, text:str) -> str:
         log_wp.debug('Replacing URLs')
-        url_pattern = re.compile('<[^a](https?:\/\/.*\..*\..{3,})>')
+        url_pattern = re.compile('<(https?:\/\/.*?\..*?\..{3,}?)>')
         url_search = re.search(url_pattern, text)
         while url_search:
             log_wp.debug(f'Found url: {url_search.group(0)}')
@@ -480,9 +480,12 @@ if __name__ == '__main__':
 
     log_wp = logging.getLogger(__name__)
     logging_handler = logging.StreamHandler()
+    logging_file_handler = logging.FileHandler('archive.log')
     logging_formatter = logging.Formatter('%(levelname)s: %(message)s')
     logging_handler.setFormatter(logging_formatter)
+    logging_file_handler.setFormatter(logging_formatter)
     log_wp.addHandler(logging_handler)
+    log_wp.addHandler(logging_file_handler)
     log_wp.setLevel(level)
 
     args.func(args)
