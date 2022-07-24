@@ -85,25 +85,31 @@ class Scraper(object):
             json.dump(self.message_data, f)
 
     def username_replace(self, text:str) -> str:
+        log_wp.debug('Replacing usernames')
         for user_id, user_name in self.users.items():
             text = re.sub(f'<@{user_id}>', f'@{user_name}', text)
 
+        log_wp.debug(f"New text: {text}")
         return text
 
     def url_replace(self, text:str) -> str:
-        url_pattern = re.compile('<(https?:\/\/.*\..*\..{3,})>')
+        log_wp.debug('Replacing URLs')
+        url_pattern = re.compile('<[^a](https?:\/\/.*\..*\..{3,})>')
         url_search = re.search(url_pattern, text)
         while url_search:
+            log_wp.debug(f'Found url: {url_search.group(0)}')
             text = text.replace(
                 url_search.group(0),
                 f'<a href="{url_search.group(1)}">{url_search.group(1)}</a>'
             )
             url_search = re.search(url_pattern, text)
 
+        log_wp.debug(f"New text: {text}")
         return text
 
 
     def emoji_replace(self, text:str) -> str:
+        log_wp.debug('Replacing emoji')
         # first remove all URLs so we can trust that colons are
         # more-or-less only for emoji
 
@@ -149,19 +155,26 @@ class Scraper(object):
             float(message['ts'])
         ).strftime('%Y-%m-%d %H:%M:%S')
 
+        log_wp.debug('Perform emoji replacement')
         if 'reactions' in message:
             for reaction in message['reactions']:
                 reaction['name'] = self.emoji_replace(f":{reaction['name']}:")
                 reaction['users'] = [self.users[x] for x in reaction['users']]
 
+        log_wp.debug('Done processing.')
         return message
 
     def process_messages(self, channel:str, messages:list) -> dict:
         processed_messages = {}
+        log_wp.debug(f'Begin processing messages:')
+        log_wp.debug('\n  '.join([m['text'] for m in messages]))
         for message in messages:
+            log_wp.debug(f'Now on {message}')
             if message['ts'] in self.timestamps(channel):
+                log_wp.debug(f'Message already in database.')
                 continue
 
+            log_wp.debug('Process message')
             message = self.process_message_object(message)
 
             message_dict = {
@@ -170,6 +183,7 @@ class Scraper(object):
 
             replies = []
             try:
+                log_wp.debug(f"Getting replies to {message['text']}")
                 reply_request = self.client.conversations_replies(
                     channel = self.channel_dict[channel],
                     ts = message['ts']
@@ -177,7 +191,7 @@ class Scraper(object):
             except SlackApiError as e:
                 if e.response['error'] == 'ratelimited':
                     delay = int(e.response.headers['Retry-After'])
-                    log_wp.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    log_wp.debug(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                     time.sleep(delay)
                     reply_request = self.client.conversations_replies(
                         channel = self.channel_dict[channel],
@@ -187,40 +201,53 @@ class Scraper(object):
                     raise e
 
             reply_batch = reply_request['messages']
+            log_wp.debug(f'Got replies. Contains {len(reply_batch) - 1} replies')
 
             if len(reply_batch) != 1:
                 
                 # the first message in the replies is the original (parent)
                 # message, so we need to delete it
                 del reply_batch[0]
+                log_wp.debug('Processing initial replies.')
                 for reply in reply_batch:
                     reply = self.process_message_object(reply)
                     replies.append(reply)
+                log_wp.debug('Done processing initial replies. Moving on.')
 
             while reply_request['has_more']:
                 try:
+                    log_wp.debug(f"Getting more replies to {message['text']}")
                     reply_request = self.client.conversations_replies(
                         channel = self.channel_dict[channel],
                         ts = message['ts'],
                         cursor = reply_request['reponse_metadata']['next_cursor']
                     )
 
+                    log_wp.debug('Got more replies. Processing.')
+
                     for reply in reply_request['messages']:
                         reply = self.process_message_object(reply)
                         replies.append(reply)
 
+                    log_wp.debug('Done processing. Checking for more replies')
+
                 except SlackApiError as e:
                     if e.response['error'] == 'ratelimited':
                         delay = int(e.response.headers['Retry-After'])
-                        log_wp.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                        log_wp.debug(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                         time.sleep(delay)
                         continue
                     else:
                         raise e
+
+            log_wp.debug('No more replies. Adding to message dict')
             
             message_dict['replies'] = sorted(replies, key = lambda d: d['ts'])
+            log_wp.debug('Sorted.')
             processed_messages[message['ts']] = message_dict
+            log_wp.debug('Added to message dict.')
 
+        log_wp.debug('All messages in this batch processed. Returning to parent task.')
         return processed_messages
 
 
@@ -231,9 +258,12 @@ class Scraper(object):
         # we have data. However, I ran into a bunch of API issues doing this
         # with the old script and gave up, since this is fast enough and also
         # speed doesn't really matter.
+
+        log_wp.info(f'Scraping {channel}')
         message_batch = False
         while not message_batch:
             try:
+                log_wp.debug('Getting new messages')
                 message_batch = self.client.conversations_history(
                     channel = self.channel_dict[channel]
                 )
@@ -253,12 +283,14 @@ class Scraper(object):
         if channel not in self.message_data:
             self.message_data[channel] = {}
 
+        log_wp.debug('Processing message batch.')
         self.message_data[channel].update(
             self.process_messages(channel, message_batch['messages'])
         )
 
         while message_batch['has_more']:
             try:
+                log_wp.debug('Getting more messages')
                 message_batch = self.client.conversations_history(
                     channel = self.channel_dict[channel],
                     cursor = message_batch['response_metadata']['next_cursor']
@@ -275,10 +307,13 @@ class Scraper(object):
             if channel not in self.message_data:
                 self.message_data[channel] = {}
 
+            log_wp.debug('Processing message batch')
             self.message_data[channel].update(
                 self.process_messages(channel, message_batch['messages'])
             )
 
+
+        log_wp.debug(f'Done with {channel}. Sorting and saving.')
         # sort by key
         self.message_data[channel] = dict(sorted(self.message_data[channel].items()))
 
