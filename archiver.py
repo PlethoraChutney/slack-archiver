@@ -90,6 +90,19 @@ class Scraper(object):
 
         return text
 
+    def url_replace(self, text:str) -> str:
+        url_pattern = re.compile('<(https?:\/\/.*\..*\..{3,})>')
+        url_search = re.search(url_pattern, text)
+        while url_search:
+            text = text.replace(
+                url_search.group(0),
+                f'<a href="{url_search.group(1)}">{url_search.group(1)}</a>'
+            )
+            url_search = re.search(url_pattern, text)
+
+        return text
+
+
     def emoji_replace(self, text:str) -> str:
         # regex pattern is rather gross because we need to avoid
         # things like urls which have serial colons in them.
