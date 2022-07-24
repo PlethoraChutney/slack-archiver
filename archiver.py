@@ -34,7 +34,7 @@ def create_client(token:str) -> WebClient:
     return client
 
 class Scraper(object):
-    def __init__(self, client:WebClient, targets:list) -> None:
+    def __init__(self, previous_data:dict, client:WebClient, targets:list) -> None:
         self.emoji_dict = {}
         with open(os.path.join(script_dir, 'emoji.json'), 'r') as f:
             emoji_list = json.load(f)
@@ -44,13 +44,12 @@ class Scraper(object):
                 [f'&#x{e};' for e in emoji['unified'].split('-')]
             )
 
-
+        self.message_data = previous_data
         self.client = client
         channels = client.conversations_list(
             types = 'public_channel, private_channel'
         )
         self.channel_dict = {c['name']: c['id'] for c in channels['channels']}
-        self.message_data = {}
             
         if targets == 'all':
             self.targets = list(self.channel_dict.keys())
@@ -77,6 +76,10 @@ class Scraper(object):
                     user_response = client.users_list()
 
         self.users = {user['id']: user['profile']['real_name'] for user in user_response["members"]}
+
+    def write_json(self, out_file:str) -> None:
+        with open(out_file, 'w') as f:
+            json.dump(self.message_data, f)
 
     def username_replace(self, text:str) -> str:
         for user_id, user_name in self.users.items():
@@ -108,20 +111,31 @@ class Scraper(object):
         return text
 
 
-    def timestamps(self, channel) -> list:
+    def timestamps(self, channel:str) -> list:
         try:
             return self.message_data[channel].keys()
         except KeyError:
             return []
 
+    def process_message_object(self, message:dict) -> dict:
+        message['text'] = self.username_replace(message['text'])
+        message['text'] = self.emoji_replace(message['text'])
+        message['user'] = self.users[message['user']]
+
+        if 'reactions' in message:
+            for reaction in message['reactions']:
+                reaction['name'] = self.emoji_replace(f":{reaction['name']}:")
+                reaction['users'] = [self.users[x] for x in reaction['users']]
+
+        return message
+
     def process_messages(self, channel:str, messages:list) -> dict:
         processed_messages = {}
         for message in messages:
-            if float(message['ts']) in self.timestamps(channel):
+            if message['ts'] in self.timestamps(channel):
                 continue
 
-            message['text'] = self.username_replace(message['text'])
-            message['text'] = self.emoji_replace(message['text'])
+            message = self.process_message_object(message)
 
             message_dict = {
                 'message': message
@@ -153,9 +167,7 @@ class Scraper(object):
                 # message, so we need to delete it
                 del reply_batch[0]
                 for reply in reply_batch:
-                    reply['text'] = self.username_replace(reply['text'])
-                    reply['text'] = self.emoji_replace(reply['text'])
-                    reply['ts'] = float(reply['ts'])
+                    reply = self.process_message_object(reply)
                     replies.append(reply)
 
             while reply_request['has_more']:
@@ -167,9 +179,7 @@ class Scraper(object):
                     )
 
                     for reply in reply_request['messages']:
-                        reply['text'] = self.username_replace(reply['text'])
-                        reply['text'] = self.emoji_replace(reply['text'])
-                        reply['ts'] = float(reply['ts'])
+                        reply = self.process_message_object(reply)
                         replies.append(reply)
 
                 except SlackApiError as e:
@@ -182,12 +192,12 @@ class Scraper(object):
                         raise e
             
             message_dict['replies'] = sorted(replies, key = lambda d: d['ts'])
-            processed_messages[float(message['ts'])] = message_dict
+            processed_messages[message['ts']] = message_dict
 
         return processed_messages
 
 
-    def scrape_channel(self, channel) -> None:
+    def scrape_channel(self, channel:str) -> None:
         message_batch = False
         while not message_batch:
             try:
@@ -239,27 +249,28 @@ class Scraper(object):
         # sort by key
         self.message_data[channel] = dict(sorted(self.message_data[channel].items()))
 
-    def scrape_channels(self):
+    def scrape_targets(self):
         for channel in self.targets:
             self.scrape_channel(channel)
             
 
-
-
-
 def scrape_session(args):
+    try:
+        with open(os.path.realpath(args.input), 'r') as f:
+            previous_data = json.load(f)
+    except FileNotFoundError:
+        log_wp.warning("Input JSON not found. If this is the first time you're running the archiver that's fine.")
+        previous_data = {}
+
     client = create_client(args.token)
     if args.archive_all:
         targets = 'all'
     else:
         targets = args.select_channels
-    scraper = Scraper(client, targets)
-    scraper.scrape_channels()
+    scraper = Scraper(previous_data, client, targets)
+    scraper.scrape_targets()
 
-
-    for channel in scraper.targets:
-        for message in scraper.message_data[channel].values():
-            print(message['message']['text'])
+    scraper.write_json(args.output)
     
 
 parser = argparse.ArgumentParser(
@@ -292,6 +303,8 @@ vxg.add_argument(
 
 subparsers = parser.add_subparsers()
 
+# Scrape parser -------------------------------------------------------------
+
 scrape = subparsers.add_parser(
     'scrape',
     help = 'Scrape the Slack workspace'
@@ -302,6 +315,19 @@ scrape.add_argument(
     '--token',
     help = 'Slack bot token. Should start with "xoxb". If not provided, will be pulled from $SLACK_TOKEN'
 )
+scrape.add_argument(
+    '-i',
+    '--input',
+    help = 'Input JSON data file. Default is slack_data.json in current directory',
+    default = 'slack_data.json'
+)
+scrape.add_argument(
+    '-o',
+    '--output',
+    help = 'Output JSON file. Default is slack_data.json in current directory',
+    default = 'slack_data.json'
+)
+
 channels = scrape.add_mutually_exclusive_group(required = True)
 channels.add_argument(
     '--archive-all',
