@@ -17,16 +17,16 @@ def create_client(token:str) -> WebClient:
         try:
             token = os.environ['SLACK_TOKEN']
         except KeyError:
-            logging.error('No slack bot token given.')
+            log_wp.error('No slack bot token given.')
             sys.exit(1)
 
     client = WebClient(token = token)
     try:
         client.auth_test()
-        logging.info('Slack authentication successful.')
+        log_wp.info('Slack authentication successful.')
     except SlackApiError as e:
         if e.response['error'] == 'invalid_auth':
-            logging.error('Authentication failed. Check slack bot token.')
+            log_wp.error('Authentication failed. Check slack bot token.')
             sys.exit(2)
         else:
             raise e
@@ -58,12 +58,12 @@ class Scraper(object):
             good_targets = []
             for target in targets:
                 if target in self.channel_dict.values():
-                    logging.error('Give channel names, not IDs')
+                    log_wp.error('Give channel names, not IDs')
                     sys.exit(4)
                 elif target in self.channel_dict:
                     good_targets.append(target)
                 else:
-                    logging.error(f'Channel "{target}" not found.')
+                    log_wp.error(f'Channel "{target}" not found.')
                     sys.exit(4)
             self.targets = good_targets
 
@@ -72,7 +72,7 @@ class Scraper(object):
         except SlackApiError as e:
                 if e.response['error'] == 'ratelimited':
                     delay = int(e.response.headers['Retry-After'])
-                    logging.debug(f"Rate limited. Retrying in {delay} seconds")
+                    log_wp.debug(f"Rate limited. Retrying in {delay} seconds")
                     time.sleep(delay)
                     user_response = client.users_list()
 
@@ -85,15 +85,25 @@ class Scraper(object):
         return text
 
     def emoji_replace(self, text:str) -> str:
-        e_match = re.search(':(.*?):', text)
+        # regex pattern is rather gross because we need to avoid
+        # things like urls which have serial colons in them.
+        # 
+        # The best quick guess is that emoji should either come
+        # at the beginning or end of the line, or be preceded by
+        # a space or another emoji (which will be a colon) or a
+        # replaced emoji (a semicolon).
+        e_pattern = re.compile('(?:[ :;]|^):(.*?):(?:[ :]|$)')
+        e_match = re.search(e_pattern, text)
         while e_match:
             try:
                 unicode_emoji = self.emoji_dict[e_match.group(1)]
-                text = text.replace(e_match.group(0), unicode_emoji)
+                log_wp.debug(f'Replacing an emoji in {text}')
+                text = text.replace(':' + e_match.group(1) + ':', unicode_emoji)
             except KeyError:
+                log_wp.debug('Emoji replacement failed. Adding brackets.')
                 text = text.replace(e_match.group(0), f"<{e_match.group(1)}>")
 
-            e_match = re.search(':(.*?):', text)
+            e_match = re.search(e_pattern, text)
 
         return text
 
@@ -126,7 +136,7 @@ class Scraper(object):
             except SlackApiError as e:
                 if e.response['error'] == 'ratelimited':
                     delay = int(e.response.headers['Retry-After'])
-                    logging.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    log_wp.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                     time.sleep(delay)
                     reply_request = self.client.conversations_replies(
                         channel = self.channel_dict[channel],
@@ -165,7 +175,7 @@ class Scraper(object):
                 except SlackApiError as e:
                     if e.response['error'] == 'ratelimited':
                         delay = int(e.response.headers['Retry-After'])
-                        logging.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                        log_wp.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                         time.sleep(delay)
                         continue
                     else:
@@ -177,7 +187,7 @@ class Scraper(object):
         return processed_messages
 
 
-    def scrape_channel(self, channel):
+    def scrape_channel(self, channel) -> None:
         message_batch = False
         while not message_batch:
             try:
@@ -187,9 +197,13 @@ class Scraper(object):
             except SlackApiError as e:
                 if e.response['error'] == 'ratelimited':
                     delay = int(e.response.headers['Retry-After'])
-                    logging.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    log_wp.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                     time.sleep(delay)
                     continue
+                elif e.response['error'] == 'not_in_channel':
+                    log_wp.warning(f"Bot not in channel {channel}. Add it by tagging in the channel.")
+                    self.message_data[channel] = {}
+                    return
                 else:
                     raise e
 
@@ -209,7 +223,7 @@ class Scraper(object):
             except SlackApiError as e:
                 if e.response['error'] == 'ratelimited':
                     delay = int(e.response.headers['Retry-After'])
-                    logging.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    log_wp.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                     time.sleep(delay)
                     continue
                 else:
@@ -314,10 +328,11 @@ if __name__ == '__main__':
     except KeyError:
         level = logging.INFO
 
-    logging.basicConfig(
-        level = level,
-        format = '{levelname}: {message} ({filename})',
-        style = '{'
-    )
+    log_wp = logging.getLogger(__name__)
+    logging_handler = logging.StreamHandler()
+    logging_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    logging_handler.setFormatter(logging_formatter)
+    log_wp.addHandler(logging_handler)
+    log_wp.setLevel(level)
 
     args.func(args)
