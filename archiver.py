@@ -120,7 +120,7 @@ class Scraper(object):
             url_search = re.search('<a href.*<\/a>', no_url_text)
 
         # now search the no-url text but replace in both
-        e_pattern = re.compile(':(.*?):')
+        e_pattern = re.compile(':([^0-9 ].*?[^ ]):')
         e_match = re.search(e_pattern, no_url_text)
         while e_match:
             try:
