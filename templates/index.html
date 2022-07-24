@@ -5,12 +5,10 @@
 {% endblock %}
 {% block body %}
 <body>
-  {% for timestamp in messages|reverse %}
-    {% for message in timestamp[0:1] %}
-      {% include "_message.html" %}
-    {% endfor %}
+  {% for root_message in messages %}
+    {% include "_message.html" %}
     <div class="reply">
-    {% for message in timestamp[1:] %}
+    {% for reply in root_message.replies %}
       {% include '_reply.html' %}
     {% endfor %}
     </div>

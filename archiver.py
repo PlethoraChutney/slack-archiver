@@ -3,10 +3,11 @@ import os
 import sys
 import re
 import json
+import jinja2
 import argparse
 import logging
 import time
-import datetime
+from datetime import datetime
 from slack import WebClient
 from slack.errors import SlackApiError
 
@@ -32,6 +33,8 @@ def create_client(token:str) -> WebClient:
             raise e
 
     return client
+
+# Scraping ----------------------------------------------------------------
 
 class Scraper(object):
     def __init__(self, previous_data:dict, client:WebClient, targets:list) -> None:
@@ -121,6 +124,9 @@ class Scraper(object):
         message['text'] = self.username_replace(message['text'])
         message['text'] = self.emoji_replace(message['text'])
         message['user'] = self.users[message['user']]
+        message['format_ts'] = datetime.fromtimestamp(
+            float(message['ts'])
+        ).strftime('%Y-%m-%d %H:%M:%S')
 
         if 'reactions' in message:
             for reaction in message['reactions']:
@@ -198,6 +204,12 @@ class Scraper(object):
 
 
     def scrape_channel(self, channel:str) -> None:
+        # this function could likely improve. Rather than downloading
+        # all the messages we have access to and checking if they're already
+        # in the old data, we should start after the latest message for which
+        # we have data. However, I ran into a bunch of API issues doing this
+        # with the old script and gave up, since this is fast enough and also
+        # speed doesn't really matter.
         message_batch = False
         while not message_batch:
             try:
@@ -271,7 +283,45 @@ def scrape_session(args):
     scraper.scrape_targets()
 
     scraper.write_json(args.output)
-    
+
+
+# Visualization ---------------------------------------------------------------
+
+templateLoader = jinja2.FileSystemLoader(searchpath = os.path.join(script_dir, 'templates'))
+templateEnv = jinja2.Environment(loader = templateLoader)
+template = templateEnv.get_template('index.html')
+
+def visualize_data(args):
+    try:
+        with open(os.path.realpath(args.input), 'r') as f:
+            slack_data = json.load(f)
+    except FileNotFoundError:
+        log_wp.error(f'Input JSON file "{os.path.realpath(args.input)}" does not exist.')
+        sys.exit(5)
+
+    # format for the JSON file is
+    # { 'channel': 
+    #   {'timestamp':
+    #       {
+    #           'message' {message},
+    #           'replies': [
+    #               {reply},
+    #               {reply}
+    #           ]
+    #       }
+    #   }
+    # }
+
+    for channel, channel_data in slack_data.items():
+        output_text = template.render(
+            channel = channel,
+            messages = channel_data.values()
+        )
+
+        with open(f'{channel}.html', 'w', encoding='utf-8') as f:
+            f.write(output_text)
+
+# Argparse --------------------------------------------------------------------
 
 parser = argparse.ArgumentParser(
     description= 'Scrape a slack workspace and save the messages to JSON'
@@ -338,6 +388,24 @@ channels.add_argument(
     '--select-channels',
     nargs = '+',
     help = 'Space-separated list of channel names'
+)
+
+# Visualization parser ---------------------------------------------------------
+
+visualize = subparsers.add_parser(
+    'visualize',
+    help = 'Visualize Slack data JSON file'
+)
+visualize.set_defaults(func = visualize_data)
+visualize.add_argument(
+    'input',
+    help = 'Input JSON data file.'
+)
+visualize.add_argument(
+    '-o',
+    '--output',
+    help = 'Output directory for HTML files. Default is current directory.',
+    default = os.getcwd()
 )
 
 if __name__ == '__main__':

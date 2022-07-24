@@ -1,9 +1,9 @@
 <p class="reply">
-  <span class="username">{{ users[message.user] }}</span>
-  <span class="timestamp"> {{ message.format_ts }}</span></p>
-<p class="reply main">{{ message.text }}</p>
+  <span class="username">{{ reply.user }}</span>
+  <span class="timestamp"> {{ reply.format_ts }}</span></p>
+<p class="reply main">{{ reply.text }}</p>
 <div class="reply reactions">
-  {% for reaction in message.processed_reactions %}
-    <div class="react">{{ reaction[0] }} {{ reaction[1] }}</div>
+  {% for reaction in reply.reactions %}
+    <div class="react">{{ reaction.name }} {{ reaction.count }}</div>
   {% endfor %}
 </div>
