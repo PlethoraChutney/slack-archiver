@@ -104,25 +104,32 @@ class Scraper(object):
 
 
     def emoji_replace(self, text:str) -> str:
-        # regex pattern is rather gross because we need to avoid
-        # things like urls which have serial colons in them.
-        # 
-        # The best quick guess is that emoji should either come
-        # at the beginning or end of the line, or be preceded by
-        # a space or another emoji (which will be a colon) or a
-        # replaced emoji (a semicolon).
-        e_pattern = re.compile('(?:[ :;]|^):(.*?):(?:[ :]|$)')
-        e_match = re.search(e_pattern, text)
+        # first remove all URLs so we can trust that colons are
+        # more-or-less only for emoji
+
+        no_url_text = text[:]
+        url_search = re.search('<a href.*<\/a>', no_url_text)
+        while url_search:
+            no_url_text = no_url_text.replace(url_search.group(0), '')
+            url_search = re.search('<a href.*<\/a>', no_url_text)
+
+        # now search the no-url text but replace in both
+        e_pattern = re.compile(':(.*?):')
+        e_match = re.search(e_pattern, no_url_text)
         while e_match:
             try:
                 unicode_emoji = self.emoji_dict[e_match.group(1)]
                 log_wp.debug(f'Replacing an emoji in {text}')
+                log_wp.debug(f'No url text: {no_url_text}')
                 text = text.replace(':' + e_match.group(1) + ':', unicode_emoji)
+                no_url_text = no_url_text.replace(':' + e_match.group(1) + ':', unicode_emoji)
+                log_wp.debug(f'Emoji replaced: {text}')
             except KeyError:
                 log_wp.debug('Emoji replacement failed. Adding brackets.')
                 text = text.replace(e_match.group(0), f"<{e_match.group(1)}>")
+                no_url_text = no_url_text.replace(e_match.group(0), f"<{e_match.group(1)}>")
 
-            e_match = re.search(e_pattern, text)
+            e_match = re.search(e_pattern, no_url_text)
 
         return text
 
@@ -135,6 +142,7 @@ class Scraper(object):
 
     def process_message_object(self, message:dict) -> dict:
         message['text'] = self.username_replace(message['text'])
+        message['text'] = self.url_replace(message['text'])
         message['text'] = self.emoji_replace(message['text'])
         message['user'] = self.users[message['user']]
         message['format_ts'] = datetime.fromtimestamp(
