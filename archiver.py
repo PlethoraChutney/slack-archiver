@@ -358,7 +358,7 @@ def scrape_session(args):
 
 templateLoader = jinja2.FileSystemLoader(searchpath = os.path.join(script_dir, 'templates'))
 templateEnv = jinja2.Environment(loader = templateLoader)
-template = templateEnv.get_template('index.html')
+template = templateEnv.get_template('channel.html')
 
 def visualize_data(args):
     try:
