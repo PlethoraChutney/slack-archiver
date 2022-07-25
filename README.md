@@ -30,27 +30,48 @@ to these DMs, as well.
 Invite the bot to whatever channels you like (easiest way is to try to @ it in the channel)
 and then run
 
-`archiver.py --token {your-slack-token} --archive-all`
+`archiver.py scrape --token {your-slack-token} --archive-all`
 
 or give it the
-name of a specific channel:
+name of a specific channel(s):
   
-`archiver.py --token {slack-token} --archive-channel general`
+`archiver.py scrape --token {slack-token} --select-channels general random`
+
+If you've run the archiver before, be sure to give it your previous data
+so that you don't lose the messages outside your current limit. By default
+it will look for `slack_data.json` in the current directory, but you can
+give it a different path if you like:
+
+`archiver.py scrape --token {slack-token} --archive-all --input data/lab_slack.json --output new_data/lab_slack.json`
+
+## To Do
+ - Might be useful to download files as well
 
 # Slack Visualizer
 ## Purpose
-An extremely rudimentary visualizer for the JSON archives. Uses a Jinja2 template
-to make a huge, plain html file for each channel archive. Just need to point it
-to the directory which contains all of your channels' .json files, it'll do the
-rest.
+To keep everything simple, all your slack messages will be processed by the
+Jinja templater to one HTML file per channel, along with an index file
+to link to all the channels. That way search is implemented by browser, etc.
 
 ## Usage
-Easy: `visualizer.py /path/to/json/directory`
+Easy: `archiver.py visualize /path/to/slack_data.json workspace_name`
+
+`workspace_name` is whatever you want to be in the HTML title tag and
+the index heading, it's not that important but you do have to give it.
+
+The HTML files are fairly simple, but they do display things in a nice
+enough way. Along the left there is a sidebar with links to the other
+channels. Each message will have the associated replies and emoji reactions,
+and you can hover to show who reacted with what. Some links are messed
+up because of the processing, but for the most part everything works.
 
 ## To Do
- - Visualizer doesn't pull links right now
- - Might be useful to download files as well
  - Eventually, it would probably be good to paginate the results
 
-Also, this is one of those projects that kinda grew organically out of a much
-simpler script. Should probably just re-build it now that it's this.
+# Convert Old Data
+If you used my slack archiver before I refactored it (haha...wow, thanks)
+I have written a utility script to get the old "pile-of-JSONs" way of
+doing things into the format this version expects.
+
+## Usage
+`convert_old.py --output /wherever/you/want/data.json {old_json_glob}`
