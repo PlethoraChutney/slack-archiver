@@ -17,6 +17,11 @@ for (let reaction of reactions) {
         hoverContainer.classList.remove('hidden');
     })
 
+    reaction.addEventListener('mousemove', (event) => {
+        hoverContainer.style.top = event.pageY + 'px';
+        hoverContainer.style.left = event.pageX + 'px';
+    })
+
     reaction.addEventListener('mouseleave', () => {
         while(hoverContainer.firstChild) {
             hoverContainer.removeChild(hoverContainer.firstChild);

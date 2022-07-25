@@ -39,6 +39,7 @@ h1 {
     padding: 3px;
     border: 1px solid black;
     border-radius: 3px;
+    user-select: none;
 }
 
 #mouseover-container {

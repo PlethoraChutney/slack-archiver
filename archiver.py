@@ -18,16 +18,16 @@ def create_client(token:str) -> WebClient:
         try:
             token = os.environ['SLACK_TOKEN']
         except KeyError:
-            log_wp.error('No slack bot token given.')
+            archive_logger.error('No slack bot token given.')
             sys.exit(1)
 
     client = WebClient(token = token)
     try:
         client.auth_test()
-        log_wp.info('Slack authentication successful.')
+        archive_logger.info('Slack authentication successful.')
     except SlackApiError as e:
         if e.response['error'] == 'invalid_auth':
-            log_wp.error('Authentication failed. Check slack bot token.')
+            archive_logger.error('Authentication failed. Check slack bot token.')
             sys.exit(2)
         else:
             raise e
@@ -37,7 +37,7 @@ def create_client(token:str) -> WebClient:
 # Scraping ----------------------------------------------------------------
 
 class Scraper(object):
-    def __init__(self, previous_data:dict, client:WebClient, targets:list) -> None:
+    def __init__(self, previous_data:dict, client:WebClient, targets:list, no_connection = False) -> None:
         self.emoji_dict = {}
         with open(os.path.join(script_dir, 'emoji.json'), 'r') as f:
             emoji_list = json.load(f)
@@ -48,70 +48,80 @@ class Scraper(object):
             )
 
         self.message_data = previous_data
-        self.client = client
-        channels = client.conversations_list(
-            types = 'public_channel, private_channel'
-        )
-        self.channel_dict = {c['name']: c['id'] for c in channels['channels']}
-            
-        if targets == 'all':
-            self.targets = list(self.channel_dict.keys())
+
+        if not no_connection:
+            self.client = client
+            channels = client.conversations_list(
+                types = 'public_channel, private_channel'
+            )
+            self.channel_dict = {c['name']: c['id'] for c in channels['channels']}
+                
+            if targets == 'all':
+                self.targets = list(self.channel_dict.keys())
+            else:
+                good_targets = []
+                for target in targets:
+                    if target in self.channel_dict.values():
+                        archive_logger.error('Give channel names, not IDs')
+                        sys.exit(4)
+                    elif target in self.channel_dict:
+                        good_targets.append(target)
+                    else:
+                        archive_logger.error(f'Channel "{target}" not found.')
+                        sys.exit(4)
+                self.targets = good_targets
+
+            try:
+                user_response = client.users_list()
+            except SlackApiError as e:
+                    if e.response['error'] == 'ratelimited':
+                        delay = int(e.response.headers['Retry-After'])
+                        archive_logger.debug(f"Rate limited. Retrying in {delay} seconds")
+                        time.sleep(delay)
+                        user_response = client.users_list()
+
+            self.users = {user['id']: user['profile']['real_name'] for user in user_response["members"]}
         else:
-            good_targets = []
-            for target in targets:
-                if target in self.channel_dict.values():
-                    log_wp.error('Give channel names, not IDs')
-                    sys.exit(4)
-                elif target in self.channel_dict:
-                    good_targets.append(target)
-                else:
-                    log_wp.error(f'Channel "{target}" not found.')
-                    sys.exit(4)
-            self.targets = good_targets
+            archive_logger.info('Making no-client scraper for conversion purposes.')
+            self.channel_dict = {}
+            self.users = {}
 
-        try:
-            user_response = client.users_list()
-        except SlackApiError as e:
-                if e.response['error'] == 'ratelimited':
-                    delay = int(e.response.headers['Retry-After'])
-                    log_wp.debug(f"Rate limited. Retrying in {delay} seconds")
-                    time.sleep(delay)
-                    user_response = client.users_list()
-
-        self.users = {user['id']: user['profile']['real_name'] for user in user_response["members"]}
 
     def write_json(self, out_file:str) -> None:
         with open(out_file, 'w') as f:
             json.dump(self.message_data, f)
 
     def username_replace(self, text:str) -> str:
-        log_wp.debug('Replacing usernames')
+        archive_logger.debug('Replacing usernames')
         for user_id, user_name in self.users.items():
             text = re.sub(f'<@{user_id}>', f'@{user_name}', text)
 
-        log_wp.debug(f"New text: {text}")
+        archive_logger.debug(f"New text: {text}")
         return text
 
     def url_replace(self, text:str) -> str:
-        log_wp.debug('Replacing URLs')
+        archive_logger.debug('Replacing URLs')
         url_pattern = re.compile('<(https?:\/\/.*?\..*?\..{3,}?)>')
         url_search = re.search(url_pattern, text)
         while url_search:
-            log_wp.debug(f'Found url: {url_search.group(0)}')
+            archive_logger.debug(f'Found url: {url_search.group(0)}')
             text = text.replace(
                 url_search.group(0),
                 f'<a href="{url_search.group(1)}">{url_search.group(1)}</a>'
             )
             url_search = re.search(url_pattern, text)
 
-        log_wp.debug(f"New text: {text}")
+        archive_logger.debug(f"New text: {text}")
         return text
 
 
     def emoji_replace(self, text:str) -> str:
-        log_wp.debug('Replacing emoji')
+        archive_logger.debug('Replacing emoji')
         # first remove all URLs so we can trust that colons are
         # more-or-less only for emoji
+        # 
+        # we can handle likely ratio colons (i.e., 1:10) in
+        # the regex itself
 
         no_url_text = text[:]
         url_search = re.search('<a href.*<\/a>', no_url_text)
@@ -125,17 +135,20 @@ class Scraper(object):
         while e_match:
             try:
                 unicode_emoji = self.emoji_dict[e_match.group(1)]
-                log_wp.debug(f'Replacing an emoji in {text}')
-                log_wp.debug(f'No url text: {no_url_text}')
+                archive_logger.debug(f'Replacing an emoji in {text}')
+                archive_logger.debug(f'No url text: {no_url_text}')
                 text = text.replace(':' + e_match.group(1) + ':', unicode_emoji)
                 no_url_text = no_url_text.replace(':' + e_match.group(1) + ':', unicode_emoji)
-                log_wp.debug(f'Emoji replaced: {text}')
+                archive_logger.debug(f'Emoji replaced: {text}')
             except KeyError:
-                log_wp.debug('Emoji replacement failed. Adding brackets.')
+                archive_logger.debug('Emoji replacement failed. Adding brackets.')
                 text = text.replace(e_match.group(0), f"<{e_match.group(1)}>")
                 no_url_text = no_url_text.replace(e_match.group(0), f"<{e_match.group(1)}>")
 
             e_match = re.search(e_pattern, no_url_text)
+
+        # lazy, bad, naughty, etc.
+        text.replace(':100:', self.emoji_dict['100'])
 
         return text
 
@@ -155,26 +168,26 @@ class Scraper(object):
             float(message['ts'])
         ).strftime('%Y-%m-%d %H:%M:%S')
 
-        log_wp.debug('Perform emoji replacement')
+        archive_logger.debug('Perform emoji replacement')
         if 'reactions' in message:
             for reaction in message['reactions']:
                 reaction['name'] = self.emoji_replace(f":{reaction['name']}:")
                 reaction['users'] = [self.users[x] for x in reaction['users']]
 
-        log_wp.debug('Done processing.')
+        archive_logger.debug('Done processing.')
         return message
 
     def process_messages(self, channel:str, messages:list) -> dict:
         processed_messages = {}
-        log_wp.debug(f'Begin processing messages:')
-        log_wp.debug('\n  '.join([m['text'] for m in messages]))
+        archive_logger.debug(f'Begin processing messages:')
+        archive_logger.debug('\n  '.join([m['text'] for m in messages]))
         for message in messages:
-            log_wp.debug(f'Now on {message}')
+            archive_logger.debug(f'Now on {message}')
             if message['ts'] in self.timestamps(channel):
-                log_wp.debug(f'Message already in database.')
+                archive_logger.debug(f'Message already in database.')
                 continue
 
-            log_wp.debug('Process message')
+            archive_logger.debug('Process message')
             message = self.process_message_object(message)
 
             message_dict = {
@@ -183,7 +196,7 @@ class Scraper(object):
 
             replies = []
             try:
-                log_wp.debug(f"Getting replies to {message['text']}")
+                archive_logger.debug(f"Getting replies to {message['text']}")
                 reply_request = self.client.conversations_replies(
                     channel = self.channel_dict[channel],
                     ts = message['ts']
@@ -191,7 +204,7 @@ class Scraper(object):
             except SlackApiError as e:
                 if e.response['error'] == 'ratelimited':
                     delay = int(e.response.headers['Retry-After'])
-                    log_wp.debug(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    archive_logger.debug(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                     time.sleep(delay)
                     reply_request = self.client.conversations_replies(
                         channel = self.channel_dict[channel],
@@ -201,53 +214,53 @@ class Scraper(object):
                     raise e
 
             reply_batch = reply_request['messages']
-            log_wp.debug(f'Got replies. Contains {len(reply_batch) - 1} replies')
+            archive_logger.debug(f'Got replies. Contains {len(reply_batch) - 1} replies')
 
             if len(reply_batch) != 1:
                 
                 # the first message in the replies is the original (parent)
                 # message, so we need to delete it
                 del reply_batch[0]
-                log_wp.debug('Processing initial replies.')
+                archive_logger.debug('Processing initial replies.')
                 for reply in reply_batch:
                     reply = self.process_message_object(reply)
                     replies.append(reply)
-                log_wp.debug('Done processing initial replies. Moving on.')
+                archive_logger.debug('Done processing initial replies. Moving on.')
 
             while reply_request['has_more']:
                 try:
-                    log_wp.debug(f"Getting more replies to {message['text']}")
+                    archive_logger.debug(f"Getting more replies to {message['text']}")
                     reply_request = self.client.conversations_replies(
                         channel = self.channel_dict[channel],
                         ts = message['ts'],
                         cursor = reply_request['reponse_metadata']['next_cursor']
                     )
 
-                    log_wp.debug('Got more replies. Processing.')
+                    archive_logger.debug('Got more replies. Processing.')
 
                     for reply in reply_request['messages']:
                         reply = self.process_message_object(reply)
                         replies.append(reply)
 
-                    log_wp.debug('Done processing. Checking for more replies')
+                    archive_logger.debug('Done processing. Checking for more replies')
 
                 except SlackApiError as e:
                     if e.response['error'] == 'ratelimited':
                         delay = int(e.response.headers['Retry-After'])
-                        log_wp.debug(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                        archive_logger.debug(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                         time.sleep(delay)
                         continue
                     else:
                         raise e
 
-            log_wp.debug('No more replies. Adding to message dict')
+            archive_logger.debug('No more replies. Adding to message dict')
             
             message_dict['replies'] = sorted(replies, key = lambda d: d['ts'])
-            log_wp.debug('Sorted.')
+            archive_logger.debug('Sorted.')
             processed_messages[message['ts']] = message_dict
-            log_wp.debug('Added to message dict.')
+            archive_logger.debug('Added to message dict.')
 
-        log_wp.debug('All messages in this batch processed. Returning to parent task.')
+        archive_logger.debug('All messages in this batch processed. Returning to parent task.')
         return processed_messages
 
 
@@ -259,22 +272,22 @@ class Scraper(object):
         # with the old script and gave up, since this is fast enough and also
         # speed doesn't really matter.
 
-        log_wp.info(f'Scraping {channel}')
+        archive_logger.info(f'Scraping {channel}')
         message_batch = False
         while not message_batch:
             try:
-                log_wp.debug('Getting new messages')
+                archive_logger.debug('Getting new messages')
                 message_batch = self.client.conversations_history(
                     channel = self.channel_dict[channel]
                 )
             except SlackApiError as e:
                 if e.response['error'] == 'ratelimited':
                     delay = int(e.response.headers['Retry-After'])
-                    log_wp.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    archive_logger.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                     time.sleep(delay)
                     continue
                 elif e.response['error'] == 'not_in_channel':
-                    log_wp.warning(f"Bot not in channel {channel}. Add it by tagging in the channel.")
+                    archive_logger.warning(f"Bot not in channel {channel}. Add it by tagging in the channel.")
                     self.message_data[channel] = {}
                     return
                 else:
@@ -283,14 +296,14 @@ class Scraper(object):
         if channel not in self.message_data:
             self.message_data[channel] = {}
 
-        log_wp.debug('Processing message batch.')
+        archive_logger.debug('Processing message batch.')
         self.message_data[channel].update(
             self.process_messages(channel, message_batch['messages'])
         )
 
         while message_batch['has_more']:
             try:
-                log_wp.debug('Getting more messages')
+                archive_logger.debug('Getting more messages')
                 message_batch = self.client.conversations_history(
                     channel = self.channel_dict[channel],
                     cursor = message_batch['response_metadata']['next_cursor']
@@ -298,7 +311,7 @@ class Scraper(object):
             except SlackApiError as e:
                 if e.response['error'] == 'ratelimited':
                     delay = int(e.response.headers['Retry-After'])
-                    log_wp.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
+                    archive_logger.info(f'Rate limited while fetching messages. Trying again in {delay} seconds.')
                     time.sleep(delay)
                     continue
                 else:
@@ -307,13 +320,13 @@ class Scraper(object):
             if channel not in self.message_data:
                 self.message_data[channel] = {}
 
-            log_wp.debug('Processing message batch')
+            archive_logger.debug('Processing message batch')
             self.message_data[channel].update(
                 self.process_messages(channel, message_batch['messages'])
             )
 
 
-        log_wp.debug(f'Done with {channel}. Sorting and saving.')
+        archive_logger.debug(f'Done with {channel}. Sorting and saving.')
         # sort by key
         self.message_data[channel] = dict(sorted(self.message_data[channel].items()))
 
@@ -327,7 +340,7 @@ def scrape_session(args):
         with open(os.path.realpath(args.input), 'r') as f:
             previous_data = json.load(f)
     except FileNotFoundError:
-        log_wp.warning("Input JSON not found. If this is the first time you're running the archiver that's fine.")
+        archive_logger.warning("Input JSON not found. If this is the first time you're running the archiver that's fine.")
         previous_data = {}
 
     client = create_client(args.token)
@@ -352,7 +365,7 @@ def visualize_data(args):
         with open(os.path.realpath(args.input), 'r') as f:
             slack_data = json.load(f)
     except FileNotFoundError:
-        log_wp.error(f'Input JSON file "{os.path.realpath(args.input)}" does not exist.')
+        archive_logger.error(f'Input JSON file "{os.path.realpath(args.input)}" does not exist.')
         sys.exit(5)
 
     # format for the JSON file is
@@ -464,6 +477,19 @@ visualize.add_argument(
     default = os.getcwd()
 )
 
+def make_logger(level):
+    archive_logger = logging.getLogger(__name__)
+    logging_handler = logging.StreamHandler()
+    logging_file_handler = logging.FileHandler('archive.log')
+    logging_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    logging_handler.setFormatter(logging_formatter)
+    logging_file_handler.setFormatter(logging_formatter)
+    archive_logger.addHandler(logging_handler)
+    archive_logger.addHandler(logging_file_handler)
+    archive_logger.setLevel(level)
+
+    return archive_logger
+
 if __name__ == '__main__':
     args = parser.parse_args()
 
@@ -478,14 +504,6 @@ if __name__ == '__main__':
     except KeyError:
         level = logging.INFO
 
-    log_wp = logging.getLogger(__name__)
-    logging_handler = logging.StreamHandler()
-    logging_file_handler = logging.FileHandler('archive.log')
-    logging_formatter = logging.Formatter('%(levelname)s: %(message)s')
-    logging_handler.setFormatter(logging_formatter)
-    logging_file_handler.setFormatter(logging_formatter)
-    log_wp.addHandler(logging_handler)
-    log_wp.addHandler(logging_file_handler)
-    log_wp.setLevel(level)
+    archive_logger = make_logger(level)
 
     args.func(args)
