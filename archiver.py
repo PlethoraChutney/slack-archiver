@@ -101,7 +101,7 @@ class Scraper(object):
 
     def url_replace(self, text:str) -> str:
         archive_logger.debug('Replacing URLs')
-        url_pattern = re.compile('<(https?:\/\/.*?\..*?\..{3,}?)>')
+        url_pattern = re.compile('<(https?:\/\/[^<>]*?\.[^<>]*?\.[^<>]{3,}?)>')
         url_search = re.search(url_pattern, text)
         while url_search:
             archive_logger.debug(f'Found url: {url_search.group(0)}')
