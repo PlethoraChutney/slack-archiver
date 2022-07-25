@@ -1,8 +1,9 @@
-<p class="reply">
+<p class="metadata">
   <span class="username">{{ reply.user }}</span>
-  <span class="timestamp"> {{ reply.format_ts }}</span></p>
-<p class="reply main">{{ reply.text }}</p>
-<div class="reply reactions">
+  <span class="timestamp"> {{ reply.format_ts }}</span>
+</p>
+<p class="main">{{ reply.text }}</p>
+<div class="reactions">
   {% for reaction in reply.reactions %}
     <div class="react" data-users="{{','.join(reaction.users)}}">
       {{ reaction.name }} {{ reaction.count }}

@@ -6,13 +6,14 @@
 {% block body %}
 <body>
   {% for root_message in messages %}
-    {% include "_message.html" %}
-    <div class="reply">
-    {% for reply in root_message.replies %}
-      {% include '_reply.html' %}
-    {% endfor %}
+    <div class="message">
+      {% include "_message.html" %}
+      <div class="replies">
+      {% for reply in root_message.replies %}
+        <div class="reply">{% include '_reply.html' %}</div>
+      {% endfor %}
+      </div>
     </div>
-    <hr>
   {% endfor %}
 </body>
 {% endblock %}

@@ -4,20 +4,38 @@ html {
     background-color: #FFFFFF;
 }
 
-body {
+#page-view {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: max-content 1fr;
+    grid-template-areas: "header header" "sidebar content";
+    width: 90vw;
+    max-width: 1200px;
     margin: auto;
-    width: 50%;
-    min-width: 750px;
+}
+
+#archive-container {
+    grid-area: content;
+    width: 100%;
+}
+
+div.message {
+    border-bottom: 1px solid black;
+    padding: 10px;
 }
 
 h1 {
     font-family: "Open Sans", sans-serif;
 }
 
-.reply {
+div.replies {
     font-size: 11pt;
     color: #666666;
-    padding-left: 2em;
+    padding: 0px 10px 10px 40px;
+}
+
+.message.main {
+    word-break: break-word;
 }
 
 .username {
@@ -28,10 +46,11 @@ h1 {
     color: #AAAAAA;
 }
 
-.reactions {
-    margin: 5px;
+div.reactions {
     display: flex;
     flex-direction: row;
+    gap: 10px;
+    margin-left: 0;
 }
 
 .react {
@@ -45,6 +64,7 @@ h1 {
 #mouseover-container {
     position: absolute;
     top: 0;
+    left: 0;
     min-width: 100px;
     padding: 10px;
     margin: 20px;
