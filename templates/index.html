@@ -5,15 +5,23 @@
 {% endblock %}
 {% block body %}
 <body>
-  {% for root_message in messages %}
-    <div class="message">
-      {% include "_message.html" %}
-      <div class="replies">
-      {% for reply in root_message.replies %}
-        <div class="reply">{% include '_reply.html' %}</div>
-      {% endfor %}
+  <h1 id="header">#{{channel}}</h1>
+  <div id="sidebar">
+    {% for channel in channels %}
+      <a href="{{channel}}.html">#{{channel}}</a>
+    {% endfor %}
+  </div>
+  <div class="archive-container">
+    {% for root_message in messages %}
+      <div class="message">
+        {% include "_message.html" %}
+        <div class="replies">
+        {% for reply in root_message.replies %}
+          <div class="reply">{% include '_reply.html' %}</div>
+        {% endfor %}
+        </div>
       </div>
-    </div>
-  {% endfor %}
+    {% endfor %}
+  </div>
 </body>
 {% endblock %}

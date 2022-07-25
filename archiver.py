@@ -384,6 +384,7 @@ def visualize_data(args):
     for channel, channel_data in slack_data.items():
         output_text = template.render(
             channel = channel,
+            channels = list(slack_data.keys()),
             messages = channel_data.values()
         )
 
