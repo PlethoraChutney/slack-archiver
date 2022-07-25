@@ -4,3 +4,4 @@ venv/
 *.7z
 /*.html
 *.log
+__pycache__/
