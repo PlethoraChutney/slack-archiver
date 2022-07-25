@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins&display=swap');
+html {
+    font-family: Poppins, sans-serif;
+    background-color: #FFFFFF;
+    height: 100vh;
+    width: 100vw;
+    padding: 0;
+    margin: 0;
+}
+
+h1 {
+    font-family: Poppins, sans-serif;
+    margin: auto;
+    width: max-content;
+}
+
+body {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+#channel-display {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    width: 90%;
+    margin: auto;
+    gap: 20px;
+}
+
+a {
+    font-size: 18pt;
+    text-align: center;
+}

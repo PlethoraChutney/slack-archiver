@@ -359,6 +359,7 @@ def scrape_session(args):
 templateLoader = jinja2.FileSystemLoader(searchpath = os.path.join(script_dir, 'templates'))
 templateEnv = jinja2.Environment(loader = templateLoader)
 template = templateEnv.get_template('channel.html')
+index = templateEnv.get_template('index.html')
 
 def visualize_data(args):
     try:
@@ -381,15 +382,30 @@ def visualize_data(args):
     #   }
     # }
 
+    sorted_channels = list(slack_data.keys())
+    sorted_channels.sort()
+
     for channel, channel_data in slack_data.items():
         output_text = template.render(
+            workspace = args.workspace,
             channel = channel,
-            channels = list(slack_data.keys()),
+            channels = sorted_channels,
             messages = channel_data.values()
         )
 
         with open(f'{channel}.html', 'w', encoding='utf-8') as f:
             f.write(output_text)
+    
+    sorted_channels = list(slack_data.keys())
+    sorted_channels.sort()
+
+    index_text = index.render(
+        workspace = args.workspace,
+        channels = sorted_channels
+    )
+
+    with open('index.html', 'w') as f:
+        f.write(index_text)
 
 # Argparse --------------------------------------------------------------------
 
@@ -470,6 +486,10 @@ visualize.set_defaults(func = visualize_data)
 visualize.add_argument(
     'input',
     help = 'Input JSON data file.'
+)
+visualize.add_argument (
+    'workspace',
+    help = 'Name of the workspace. For HTML titles'
 )
 visualize.add_argument(
     '-o',
