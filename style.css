@@ -2,6 +2,21 @@
 html {
     font-family: Poppins, sans-serif;
     background-color: #FFFFFF;
+    height: 100vh;
+    width: 100vw;
+    padding: 0;
+    margin: 0;
+}
+
+h1 {
+    font-family: Poppins, sans-serif;
+}
+
+body {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
 }
 
 #page-view {
@@ -9,7 +24,8 @@ html {
     grid-template-columns: 200px 1fr;
     grid-template-rows: max-content 1fr;
     grid-template-areas: "header header" "sidebar content";
-    width: 90vw;
+    width: 90%;
+    height: 100%;
     max-width: 1200px;
     margin: auto;
 }
@@ -17,12 +33,19 @@ html {
 #archive-container {
     grid-area: content;
     width: 100%;
+    height: 100%;
+    overflow-y: scroll;
+    scrollbar-width: thin;
+    scrollbar-color: #ffcb50 #efefef;
 }
 
 #sidebar {
     grid-area: sidebar;
     width: 100%;
     height: 100%;
+    overflow-y: scroll;
+    scrollbar-width: thin;
+    scrollbar-color: lightgrey white;
     display: flex;
     flex-direction: column;
 }
