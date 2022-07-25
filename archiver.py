@@ -490,6 +490,8 @@ def make_logger(level):
 
     return archive_logger
 
+archive_logger = make_logger(logging.INFO)
+
 if __name__ == '__main__':
     args = parser.parse_args()
 
@@ -504,6 +506,6 @@ if __name__ == '__main__':
     except KeyError:
         level = logging.INFO
 
-    archive_logger = make_logger(level)
+    archive_logger.setLevel(level)
 
     args.func(args)
