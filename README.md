@@ -1,7 +1,8 @@
 # Slack Archiver
 Pull messages and replies from all (or selected) channels.
 
-![A video demonstrating use of the archive.](readme_examples/archive-example.mp4)
+![Screenshot of the archive homepage](readme_examples/index.png)
+![Screenshot of an example channel archive](readme_examples/papers.png)
 
 ## Purpose
 Although the standard Slack plan allows you to download a JSON archive of
