@@ -393,7 +393,7 @@ def visualize_data(args):
             messages = channel_data.values()
         )
 
-        with open(f'{channel}.html', 'w', encoding='utf-8') as f:
+        with open(os.path.join(args.output, f'{channel}.html'), 'w', encoding='utf-8') as f:
             f.write(output_text)
     
     sorted_channels = list(slack_data.keys())
@@ -404,7 +404,7 @@ def visualize_data(args):
         channels = sorted_channels
     )
 
-    with open('index.html', 'w') as f:
+    with open(os.path.join(args.output, 'index.html'), 'w') as f:
         f.write(index_text)
 
 # Argparse --------------------------------------------------------------------
