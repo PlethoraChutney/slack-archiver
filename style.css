@@ -73,6 +73,7 @@ div.replies {
 
 .message.main {
     word-break: break-word;
+    white-space: pre-line;
 }
 
 .username {
